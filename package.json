@@ -23,16 +23,19 @@
     "productivity"
   ],
   "peerDependencies": {
-    "@earendil-works/pi-ai": ">=0.74.0",
-    "@earendil-works/pi-coding-agent": ">=0.74.0",
-    "@earendil-works/pi-tui": ">=0.74.0"
+    "@earendil-works/pi-ai": "1.5.0",
+    "@earendil-works/pi-coding-agent": "1.5.0",
+    "@earendil-works/pi-tui": "1.5.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "playwright-core": "^1.65.0",
     "typebox": "^1.1.24"
   },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
+    "test:live": "PI_SUPERVISOR_LIVE_MCP=1 vitest run test/live-mcp.test.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src/ test/",
@@ -41,13 +44,21 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.8",
+    "@types/jsdom": "^30.0.0",
     "@types/node": "^20.0.0",
+    "jsdom": "^31.0.0",
     "typescript": "^5.0.0",
     "vitest": "^4.0.18"
   },
   "pi": {
-    "extensions": ["./src/index.ts"],
+    "extensions": [
+      "./src/index.ts"
+    ],
     "video": "https://github.com/tintinweb/pi-supervisor/raw/master/media/demo.mp4",
     "image": "https://github.com/tintinweb/pi-supervisor/raw/master/media/screenshot.png"
+  },
+  "allowScripts": {
+    "@google/genai@2.21.0": true,
+    "protobufjs@7.6.6": true
   }
 }

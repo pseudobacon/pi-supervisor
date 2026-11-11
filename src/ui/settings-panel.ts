@@ -8,9 +8,9 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { ModelSelectorComponent, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
 import { type SettingItem, SettingsList, type SettingsListTheme } from "@earendil-works/pi-tui";
-import type { Sensitivity, SupervisorState } from "../types.js";
+import type { Sensitivity, SupervisorBackendId, SupervisorState } from "../types.js";
 import { isWidgetVisible } from "./status-widget.js";
 
 const SENSITIVITIES: Sensitivity[] = ["low", "medium", "high"];
@@ -25,7 +25,9 @@ export interface SettingsResult {
   model?: { provider: string; modelId: string };
   sensitivity?: Sensitivity;
   widget?: boolean;
-  action?: "stop" | "start";
+  /** Which supervisor answers. Persisted to .pi/supervisor-config.json. */
+  backend?: SupervisorBackendId;
+  action?: "stop" | "start" | "mcp";
 }
 
 /**
@@ -38,6 +40,7 @@ export async function openSettings(
   defaultProvider: string,
   defaultModelId: string,
   defaultSensitivity: Sensitivity,
+  options: { backend?: SupervisorBackendId; mcpSummary?: string } = {},
 ): Promise<SettingsResult | null> {
   const currentProvider = state?.provider ?? defaultProvider;
   const currentModelId = state?.modelId ?? defaultModelId;
@@ -46,18 +49,19 @@ export async function openSettings(
 
   const result: SettingsResult = {};
 
-  return ctx.ui.custom<SettingsResult | null>((tui, theme, _kb, done) => {
+  return ctx.ui.custom<SettingsResult | null>(async (tui, theme, _kb, done) => {
+    // pi 1.5.0: the model submenu takes the model runtime, not a settings
+    // manager. One runtime serves every submenu the panel opens.
+    const modelRuntime = await ModelRuntime.create();
     const makeModelSubmenu = (currentValue: string, submenuDone: (selected?: string) => void) => {
       const [prov, mid] = currentValue.includes("/")
         ? [currentValue.split("/")[0], currentValue.split("/").slice(1).join("/")]
         : [currentProvider, currentValue];
       const currentModel = ctx.modelRegistry.find(prov, mid);
-      const settingsManager = SettingsManager.inMemory();
       const component = new ModelSelectorComponent(
         tui,
         currentModel,
-        settingsManager,
-        ctx.modelRegistry,
+        modelRuntime,
         [],
         (model) => {
           result.model = { provider: model.provider, modelId: model.id };
@@ -83,6 +87,23 @@ export async function openSettings(
         description: SENSITIVITY_DESCRIPTIONS[currentSensitivity],
         currentValue: currentSensitivity,
         values: [...SENSITIVITIES],
+      },
+      {
+        id: "backend",
+        label: "Supervisor",
+        description:
+          options.backend === "mcp"
+            ? `MCP supervisor${options.mcpSummary ? ` — ${options.mcpSummary}` : ""} (between worker runs)`
+            : "Pi model reviews the chat — mid-run and at end of run",
+        currentValue: options.backend ?? "model",
+        values: ["model", "mcp"],
+      },
+      {
+        id: "mcp",
+        label: "MCP Backend…",
+        description: "Endpoint, tool, and limits for the MCP supervisor",
+        currentValue: "",
+        values: ["open"],
       },
       {
         id: "widget",
@@ -127,6 +148,12 @@ export async function openSettings(
           result.sensitivity = sens;
           // Update description dynamically
           settingsList.updateValue("sensitivity", sens);
+        } else if (id === "backend") {
+          result.backend = newValue === "mcp" ? "mcp" : "model";
+          settingsList.updateValue("backend", result.backend);
+        } else if (id === "mcp" && newValue === "open") {
+          result.action = "mcp";
+          done(result);
         } else if (id === "widget") {
           result.widget = newValue === "visible";
         } else if (id === "stop" && newValue === "confirm") {
@@ -136,7 +163,7 @@ export async function openSettings(
       },
       () => {
         // Cancel — return null if no changes, or partial result if some changes were made
-        const hasChanges = result.model || result.sensitivity || result.widget !== undefined;
+        const hasChanges = result.model || result.sensitivity || result.widget !== undefined || result.backend;
         done(hasChanges ? result : null);
       },
     );

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { SupervisorStateManager } from "../src/state.js";
+import { MISSING_STATE_NOTE, SupervisorStateManager } from "../src/state.js";
 import type { SupervisorState } from "../src/types.js";
 
 function makePi() {
@@ -134,7 +134,9 @@ describe("SupervisorStateManager", () => {
     const mgr = new SupervisorStateManager(makePi());
     mgr.loadFromSession(ctx);
 
-    expect(mgr.getState()).toEqual(newer);
+    // Legacy session entries have no backend/phase; normalizePersisted fills in the
+    // model backend so an old run keeps behaving exactly as it did before.
+    expect(mgr.getState()).toEqual({ ...newer, backend: "model" });
     expect(mgr.isActive()).toBe(false);
   });
 
@@ -148,5 +150,69 @@ describe("SupervisorStateManager", () => {
     mgr.loadFromSession(ctx);
 
     expect(mgr.getState()).toBeNull();
+  });
+});
+
+describe("missing-state diagnosis", () => {
+  it("diagnoses a lost run: a /supervise goal with no state entry", () => {
+    const ctx = makeCtxWithBranch([
+      { type: "message", message: { role: "user", content: "/supervise fix the build" } },
+      { type: "message", message: { role: "assistant", content: [{ type: "text", text: "Working on it." }] } },
+    ]);
+
+    const mgr = new SupervisorStateManager(makePi());
+    mgr.loadFromSession(ctx);
+
+    expect(mgr.getState()).toBeNull();
+    expect(mgr.getMissingStateNote()).toBe(MISSING_STATE_NOTE);
+  });
+
+  it("accepts the real session shape (array-of-blocks content); a state entry wins", () => {
+    const ctx = makeCtxWithBranch([
+      { type: "message", message: { role: "user", content: [{ type: "text", text: "/supervise fix the build" }] } },
+      {
+        type: "custom",
+        customType: "supervisor-state",
+        data: {
+          active: true, outcome: "fix the build", provider: "anthropic",
+          modelId: "claude-haiku-4-5-20251001", sensitivity: "medium",
+          interventions: [], startedAt: 1, turnCount: 0,
+        },
+      },
+    ]);
+
+    const mgr = new SupervisorStateManager(makePi());
+    mgr.loadFromSession(ctx);
+
+    expect(mgr.getState()).not.toBeNull();
+    expect(mgr.getMissingStateNote()).toBeNull();
+  });
+
+  it("control words and ordinary messages are not evidence of a lost run", () => {
+    const ctx = makeCtxWithBranch([
+      { type: "message", message: { role: "user", content: "/supervise status" } },
+      { type: "message", message: { role: "user", content: "/supervise resume" } },
+      { type: "message", message: { role: "user", content: "/supervise status\n/supervise status" } },
+      { type: "message", message: { role: "user", content: "fix the build" } },
+    ]);
+
+    const mgr = new SupervisorStateManager(makePi());
+    mgr.loadFromSession(ctx);
+
+    expect(mgr.getState()).toBeNull();
+    expect(mgr.getMissingStateNote()).toBeNull();
+  });
+
+  it("start() clears the note", () => {
+    const ctx = makeCtxWithBranch([
+      { type: "message", message: { role: "user", content: "/supervise fix the build" } },
+    ]);
+
+    const mgr = new SupervisorStateManager(makePi());
+    mgr.loadFromSession(ctx);
+    expect(mgr.getMissingStateNote()).not.toBeNull();
+
+    mgr.start("a new goal", "anthropic", "claude-haiku-4-5", "medium");
+    expect(mgr.getMissingStateNote()).toBeNull();
   });
 });

@@ -12,6 +12,7 @@ import {
   getAgentDir,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import { parseDecision, safeContinue } from "./decision.js";
 import type { SteeringDecision } from "./types.js";
 
 /**
@@ -30,11 +31,13 @@ export async function callModel(
   const model = ctx.modelRegistry.find(provider, modelId);
   if (!model) return null;
 
-  // pi-coding-agent 0.72.x requires cwd + agentDir on the loader and
-  // renamed `systemPromptOverride: () => string` → `systemPrompt: string`.
+  // pi-coding-agent 1.5.0: without an explicit modelRuntime the session
+  // builds its own from the agent dir's auth.json and models.json — the same
+  // catalogue and credentials as the host session, with no network refresh.
+  const agentDir = getAgentDir();
   const loader = new DefaultResourceLoader({
     cwd: ctx.cwd,
-    agentDir: getAgentDir(),
+    agentDir,
     noExtensions: true,
     noSkills: true,
     noPromptTemplates: true,
@@ -47,7 +50,7 @@ export async function callModel(
   try {
     const result = await createAgentSession({
       sessionManager: SessionManager.inMemory(),
-      modelRegistry: ctx.modelRegistry,
+      agentDir,
       model,
       tools: [],
       resourceLoader: loader,
@@ -103,36 +106,9 @@ export async function callSupervisorModel(
 }
 
 // ---- Response parsing ----
+//
+// One parser for both backends lives in ./decision.ts so the model-backed and
+// MCP-backed paths cannot drift apart. Re-exported here because it has always
+// been part of this module's surface (and is covered by unit tests).
 
-/**
- * Parse a supervisor LLM response into a SteeringDecision.
- * Tolerates: bare JSON, ```json fenced blocks, JSON wrapped in prose.
- * Falls back to {action: "continue", confidence: 0} on any parse failure or
- * invalid action — the chat is never interrupted by a malformed response.
- *
- * Exported for unit tests; not part of the public extension contract.
- */
-export function parseDecision(text: string): SteeringDecision {
-  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ?? text.match(/(\{[\s\S]*\})/);
-  const jsonStr = jsonMatch?.[1] ?? text.trim();
-
-  try {
-    const parsed = JSON.parse(jsonStr) as Partial<SteeringDecision>;
-    const action = parsed.action;
-    if (action !== "continue" && action !== "steer" && action !== "done") {
-      return safeContinue("Invalid action in supervisor response");
-    }
-    return {
-      action,
-      message: typeof parsed.message === "string" ? parsed.message.trim() : undefined,
-      reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "",
-      confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.5,
-    };
-  } catch {
-    return safeContinue("Failed to parse supervisor JSON decision");
-  }
-}
-
-function safeContinue(reason: string): SteeringDecision {
-  return { action: "continue", reasoning: reason, confidence: 0 };
-}
+export { parseDecision, safeContinue } from "./decision.js";

@@ -6,7 +6,7 @@
 
 import type { Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { ModelSelectorComponent, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
 
 /**
  * Open the interactive model picker.
@@ -23,15 +23,15 @@ export async function pickModel(
       ? ctx.modelRegistry.find(currentProvider, currentModelId)
       : undefined;
 
-  // Minimal in-memory settings — we only need the selector, not persistence
-  const settingsManager = SettingsManager.inMemory();
-
-  return ctx.ui.custom<Model<any> | null>((tui, _theme, _kb, done) => {
+  return ctx.ui.custom<Model<any> | null>(async (tui, _theme, _kb, done) => {
+    // pi 1.5.0: the selector takes the model runtime (catalogue + auth), not a
+    // settings manager. The default construction reads the same auth.json and
+    // models.json under the agent dir the host uses; no network refresh.
+    const modelRuntime = await ModelRuntime.create();
     const component = new ModelSelectorComponent(
       tui,
       currentModel,
-      settingsManager,
-      ctx.modelRegistry,
+      modelRuntime,
       [], // no scoped-model cycling — we want the full model list
       (model) => done(model),
       () => done(null)
@@ -47,6 +47,7 @@ export async function pickModel(
         component.handleInput(data);
         tui.requestRender();
       },
+      dispose: () => component.dispose(),
     };
   });
 }

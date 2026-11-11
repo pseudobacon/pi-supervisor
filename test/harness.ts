@@ -88,10 +88,16 @@ export interface MockCtxOptions {
   branch?: any[];
   /** Model the active chat session reports (ctx.model). */
   sessionModel?: { provider: string; id: string };
+  /** The host's run mode, for handlers that branch on it (real pi: tui/rpc/json/print). */
+  mode?: "tui" | "rpc" | "json" | "print";
   /** Providers for which an API key is "available". Default: all. */
   apiKeyProviders?: string[] | "all";
   /** Models the registry can resolve via find(provider, id). */
   knownModels?: Array<{ provider: string; id: string }>;
+  /** Host idle flag. Real pi always answers; the MCP loop asks before injecting. */
+  idle?: boolean;
+  /** Queued follow-ups / steering messages. */
+  pendingMessages?: boolean;
 }
 
 export function createMockCtx(opts: MockCtxOptions = {}): MockCtx {
@@ -103,6 +109,7 @@ export function createMockCtx(opts: MockCtxOptions = {}): MockCtx {
   const ctx = {
     cwd: opts.cwd ?? "/tmp/pi-supervisor-nonexistent",
     model: opts.sessionModel,
+    mode: opts.mode ?? "tui",
     ui: {
       notify(message: string, level: string) {
         notifications.push({ message, level });
@@ -116,6 +123,10 @@ export function createMockCtx(opts: MockCtxOptions = {}): MockCtx {
         else widgets.set(id, value);
       },
     },
+    // Present on every supported host: the MCP loop refuses to inject unless the
+    // worker is idle with nothing queued, so a fake host has to answer too.
+    isIdle: () => opts.idle ?? true,
+    hasPendingMessages: () => opts.pendingMessages ?? false,
     sessionManager: {
       getBranch: () => branch,
     },

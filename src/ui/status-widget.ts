@@ -35,7 +35,9 @@ export type WidgetAction =
   | { type: "watching" }
   | { type: "analyzing"; turn: number; thinking?: string }
   | { type: "steering"; message: string }
-  | { type: "done" };
+  | { type: "done" }
+  /** The MCP loop stopped advancing: paused, blocked, stalled, or out of budget. */
+  | { type: "paused"; reason: string };
 
 function truncate(s: string, max: number): string {
   return s.length <= max ? s : s.slice(0, max - 1) + "…";
@@ -100,6 +102,9 @@ export function updateUI(
         break;
       case "done":
         actionStr = theme.fg("accent", "✓ done");
+        break;
+      case "paused":
+        actionStr = theme.fg("warning", `⏸ ${truncate(snapAction.reason, MAX_STEER_DISPLAY)}`);
         break;
     }
 
